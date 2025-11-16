@@ -51,7 +51,6 @@ HORA_SALIDA_UNIMET_SIGMA_H = 0.5
 np.random.seed(42)
 
 def hourfloat_to_str(hf):
-    # hf puede ser NaN o valor extraño; protegerse
     try:
         hh = int(math.floor(hf))
         mm = int(round((hf - hh) * 60))
@@ -66,12 +65,11 @@ def sample_normal_hour(mean_h, sigma_h):
     return float(np.random.normal(loc=mean_h, scale=sigma_h))
 
 def normalize_text(s: str) -> str:
-    """Quita tildes, signos de interrogación y pasa a minúsculas."""
     if not isinstance(s, str):
         return ""
     s = s.replace("¿", "").replace("?", "")
     s = unicodedata.normalize('NFD', s)
-    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn')  # remove accents
+    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn')
     return s.lower().strip()
 
 # --- Cargar datos ---
@@ -84,83 +82,76 @@ try:
 except Exception as e:
     raise RuntimeError(f"Error leyendo la hoja '{SHEET_NAME}': {e}")
 
-# conservar nombres originales pero limpiarlos visualmente
 df.columns = [str(c).strip() for c in df.columns]
 N = len(df)
 print(f'Filas leídas: {N}')
 
-# -------------------------------------------------------
 # DETECCIÓN ROBUSTA DE LA COLUMNA DEL AÑO DE ENTRADA
-# -------------------------------------------------------
 col_anio_entrada = None
 for c in df.columns:
     n = normalize_text(c)
-    # buscamos palabras núcleo: "ano" (año), "entro"/"entr" (entró/entró), "univers" (universidad)
     if "ano" in n and ("entro" in n or "entr" in n) and "univers" in n:
         col_anio_entrada = c
         break
 
 if col_anio_entrada is None:
-    print("\nColumnas detectadas en el Excel:")
+    print("\nColumnas detectadas:")
     for c in df.columns:
         print(f" - {c!r}")
-    raise RuntimeError("No se encontró la columna del año de entrada a la universidad (se buscó 'año' + 'entr/entro' + 'univers').")
+    raise RuntimeError("No se encontró la columna del año de entrada a la universidad.")
 
 print(f"Columna detectada correctamente: '{col_anio_entrada}'")
 
-# -------------------------------------------------------
-# Detectar otras columnas relevantes (flexible)
-# -------------------------------------------------------
-col_estilo = next((c for c in df.columns if 'estilo' in normalize_text(str(c))), None)
-col_condicion = next((c for c in df.columns if 'condic' in normalize_text(str(c))), None)
-col_clima = next((c for c in df.columns if 'clima' in normalize_text(str(c))), None)
-col_tipo = next((c for c in df.columns if any(t in normalize_text(str(c)) for t in ['tipo','veh','carro','moto','taxi'])), None)
-col_ubicacion = next((c for c in df.columns if 'ubic' in normalize_text(str(c))), None)
-col_zona = next((c for c in df.columns if 'zona' in normalize_text(str(c))), None)
-col_hora_salida = next((c for c in df.columns if 'salida' in normalize_text(str(c)) and 'casa' in normalize_text(str(c))), None)
-col_personas = next((c for c in df.columns if 'person' in normalize_text(str(c)) or 'acompa' in normalize_text(str(c))), None)
+# Detectar otras columnas relevantes
+col_estilo = next((c for c in df.columns if 'estilo' in normalize_text(c)), None)
+col_condicion = next((c for c in df.columns if 'condic' in normalize_text(c)), None)
+col_clima = next((c for c in df.columns if 'clima' in normalize_text(c)), None)
+col_tipo = next((c for c in df.columns if any(t in normalize_text(c) for t in ['tipo','veh','carro','moto','taxi'])), None)
+col_ubicacion = next((c for c in df.columns if 'parte de caracas' in normalize_text(c)), None)
+col_zona = next((c for c in df.columns if 'zona' in normalize_text(c)), None)
+col_hora_salida = next((c for c in df.columns if 'salida' in normalize_text(c) and 'casa' in normalize_text(c)), None)
+col_personas = next((c for c in df.columns if 'puestos' in normalize_text(c) or 'acompa' in normalize_text(c)), None)
 
-# Manejo de columnas faltantes y limpieza
+# Estilo
 if col_estilo is None:
     df['Estilo de manejo'] = np.random.choice(list(ESTILO_MAP.keys()), size=N, p=[0.2,0.6,0.2])
     col_estilo = 'Estilo de manejo'
 else:
     df[col_estilo] = df[col_estilo].fillna('Prudente')
 
+# Condición
 if col_condicion is None:
     df['Condicion'] = np.random.choice(['Buena','Regular','Mala'], size=N, p=[0.7,0.2,0.1])
     col_condicion = 'Condicion'
 else:
     df[col_condicion] = df[col_condicion].fillna('Buena')
 
+# Clima
 if col_clima is None:
     df['Clima'] = np.random.choice(['Soleado','Nublado','Lluvioso'], size=N, p=[0.6,0.25,0.15])
     col_clima = 'Clima'
 else:
     df[col_clima] = df[col_clima].fillna('Soleado')
 
+# Tipo
 if col_tipo is None:
     df['Tipo de Carro'] = np.random.choice(list(TIPO_CAPACIDAD.keys()), size=N, p=[0.6,0.2,0.05,0.15])
     col_tipo = 'Tipo de Carro'
 else:
     df[col_tipo] = df[col_tipo].fillna('carro')
 
+# Número de personas
 if col_personas is None:
     df['NumPersonasFila'] = 1
     col_personas = 'NumPersonasFila'
 else:
-    # Asegurar numericidad
     try:
         df[col_personas] = pd.to_numeric(df[col_personas], errors='coerce')
     except:
         pass
     df['NumPersonasFila'] = df[col_personas].fillna(1)
 
-# -------------------------------------------------------
-# Horas: manejo correcto de nulos (NO usar fillna(array))
-# -------------------------------------------------------
-
-# Hora de salida de casa
+# Hora salida
 if col_hora_salida is None:
     df['HoraSalidaCasa_h'] = np.random.normal(loc=HORA_SALIDA_MEDIA_DEFAULT, scale=HORA_SALIDA_SIGMA_H, size=N)
 else:
@@ -174,8 +165,7 @@ else:
             size=mask_missing.sum()
         )
 
-# Hora de salida de la Unimet (acceso/unimet)
-col_unimet = next((c for c in df.columns if 'unimet' in normalize_text(str(c))), None)
+col_unimet = next((c for c in df.columns if 'unimet' in normalize_text(c)), None)
 if col_unimet is None:
     df['HoraSalidaUnimet_h'] = np.random.normal(loc=HORA_SALIDA_UNIMET_MEDIA, scale=HORA_SALIDA_UNIMET_SIGMA_H, size=N)
 else:
@@ -189,18 +179,15 @@ else:
             size=mask_missing_unimet.sum()
         )
 
-# -------------------------------------------------------
-# Construir resultados por fila
-# -------------------------------------------------------
-
+# Construir resultados
 results = []
 
 for idx, row in df.iterrows():
-    # Año basado en la columna detectada
+
+    # Año
     try:
-        # intentar convertir a entero de forma segura
         anio_raw = int(float(row.get(col_anio_entrada, 2020)))
-    except Exception:
+    except:
         anio_raw = 2020
 
     if anio_raw <= 2020:
@@ -210,12 +197,11 @@ for idx, row in df.iterrows():
     else:
         anio = 2025
 
-    # Lectura segura de campos
     estilo = str(row.get(col_estilo, 'Prudente'))
     condicion = str(row.get(col_condicion, 'Buena'))
     clima = str(row.get(col_clima, 'Soleado'))
     tipo = str(row.get(col_tipo, 'carro')).lower()
-    ubicacion = str(row.get(col_ubicacion, 'Desconocido')) if col_ubicacion else 'Desconocido'
+    ubicacion = str(row.get('¿De qué parte de Caracas vienes?', 'Desconocido'))
     zona = str(row.get(col_zona, 'Desconocido')) if col_zona else 'Desconocido'
 
     estilo_key = next((k for k in ESTILO_MAP.keys() if k.lower() in estilo.lower()), 'Prudente')
@@ -232,7 +218,6 @@ for idx, row in df.iterrows():
     vel_max = vel_prom_sample * (1 + np.random.uniform(0.15,0.6)) * CONDICION_EFFECT[cond_key]
     vel_max = max(vel_prom, vel_max)
 
-    # ajustes por tipo
     if 'moto' in tipo:
         vel_prom *= 1.05
         vel_max *= 1.05
@@ -240,24 +225,21 @@ for idx, row in df.iterrows():
         vel_prom *= 0.9
         vel_max *= 0.9
 
-    # tiempo de trayecto
     distancia_km = DISTANCIA_DEFAULT_KM
     tiempo_h = distancia_km / max(vel_prom, 5.0)
 
-    # horas como floats (asegurar que existan)
     try:
         h_salida = float(row.get('HoraSalidaCasa_h', np.random.normal(loc=HORA_SALIDA_MEDIA_DEFAULT, scale=HORA_SALIDA_SIGMA_H)))
-    except Exception:
+    except:
         h_salida = float(np.random.normal(loc=HORA_SALIDA_MEDIA_DEFAULT, scale=HORA_SALIDA_SIGMA_H))
 
     h_llegada = h_salida + tiempo_h
 
-    demora_min = max(0, (h_llegada - 8.0) * 60)  # minutos por encima de las 8:00
+    demora_min = max(0, (h_llegada - 8.0) * 60)
     voy_tarde = 'Sí' if h_llegada > 8.0 else 'No'
 
     cambio_vel_pct = float(abs(np.random.normal(loc=5.0, scale=3.0)))
 
-    # desvío y reacción
     if estilo_key == 'Agresivo':
         desvio = np.random.choice(['Alto', 'Medio', 'Bajo'], p=[0.25,0.5,0.25])
         reaccion = np.random.choice(['Rápida','Moderada','Lenta'], p=[0.6,0.3,0.1])
@@ -268,25 +250,24 @@ for idx, row in df.iterrows():
         desvio = np.random.choice(['Alto', 'Medio', 'Bajo'], p=[0.02,0.18,0.8])
         reaccion = np.random.choice(['Rápida','Moderada','Lenta'], p=[0.1,0.5,0.4])
 
-    # personas
     try:
         num_personas_fila = int(row.get('NumPersonasFila', 1))
-    except Exception:
+    except:
         num_personas_fila = 1
     acompañado = 'Sí' if num_personas_fila > 1 else 'No'
 
-    # tráfico estimado
     col_trafico = next((c for c in df.columns if 'traf' in normalize_text(str(c))), None)
-    trafico_est = str(row[col_trafico]) if col_trafico and pd.notna(row.get(col_trafico)) else np.random.choice(['Bajo','Medio','Alto'], p=[0.4,0.45,0.15])
+    trafico_est = str(row.get(
+        '¿En que horas consideras que hay tráfico en los accesos a la UNIMET?',
+        'No responde'
+    ))
 
-    # transmisión
     col_transm = next((c for c in df.columns if 'trans' in normalize_text(str(c))), None)
     transm = str(row[col_transm]) if col_transm and pd.notna(row.get(col_transm)) else np.random.choice(['Automático','Sincrónico'], p=[0.6,0.4])
 
-    # Hora salida Unimet (proteger)
     try:
         h_salida_unimet = float(row.get('HoraSalidaUnimet_h', np.random.normal(loc=HORA_SALIDA_UNIMET_MEDIA, scale=HORA_SALIDA_UNIMET_SIGMA_H)))
-    except Exception:
+    except:
         h_salida_unimet = float(np.random.normal(loc=HORA_SALIDA_UNIMET_MEDIA, scale=HORA_SALIDA_UNIMET_SIGMA_H))
 
     info = {
@@ -296,9 +277,18 @@ for idx, row in df.iterrows():
         'Velocidad inicial': round(vel_inicial,1),
         'Velocidad máximo': round(vel_max,1),
         'Velocidad promedio': round(vel_prom,1),
-        'Ubicación': ubicacion,
+
+        # ✔ CORREGIDO
+        'Ubicación': row.get('¿De qué parte de Caracas vienes?', 'Desconocido'),
+
         'Zona donde vive': zona,
-        'Entrada preferida': row.get('Entrada preferida', 'Desconocida'),
+
+        # ✔ CORREGIDO
+        'Entrada preferida': row.get(
+            '¿Cúal entrada sueles tomar para entrar en la UNIMET?',
+            'Desconocida'
+        ),
+
         'Comportamiento': row.get('Comportamiento',''),
         'Estilo de manejo': estilo_key,
         'reacción a situación externa': reaccion,
@@ -315,16 +305,23 @@ for idx, row in df.iterrows():
         'Hora de salir de la casa': hourfloat_to_str(h_salida),
         'Hora de llegar a la Unimet': hourfloat_to_str(h_llegada),
         'Hora de salir de la Unimet': hourfloat_to_str(h_salida_unimet),
-        'Colegio Integral el Ávila': row.get('Colegio Integral el Ávila','No'),
-        'tráfico estimado por los encuestados': trafico_est,
+
+        # ✔ CORREGIDO
+        'Colegio Integral el Ávila': row.get(
+            '¿Ha encontrado cola del Colegio Integral el Ávila en el horario seleccionado previamente?',
+            'No'
+        ),
+
+        # ✔ CORREGIDO
+        'tráfico estimado por los encuestados': row.get(
+            '¿En que horas consideras que hay tráfico en los accesos a la UNIMET?',
+            'No responde'
+        ),
     }
 
     results.append(info)
 
-# -------------------------------------------------------
-# AJUSTAR CANTIDADES POR AÑO (OPCIÓN B)
-# -------------------------------------------------------
-
+# AJUSTE POR AÑO
 TARGET_COUNTS = {
     2020: 96,
     2021: 35,
@@ -367,9 +364,7 @@ print("\n✔ Cantidades finales por año:")
 for y in TARGET_COUNTS:
     print(f"{y}: {sum(1 for r in results if r['Año']==y)} registros")
 
-# -------------------------------------------------------
-# ESCRIBIR TXT FINAL
-# -------------------------------------------------------
+# ESCRIBIR TXT
 print(f'\nGenerando archivo: {OUTPUT_TXT}')
 with open(OUTPUT_TXT, 'w', encoding='utf-8') as f:
     for r in results:

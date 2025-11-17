@@ -39,7 +39,7 @@ CLIMA_EFFECT = {
 TIPO_CAPACIDAD = {
     'carro': (1, 4),
     'moto': (1, 2),
-    'wawa': (1, 20),
+    'wawa': (1, 35),
     'taxi': (1, 4),
 }
 
